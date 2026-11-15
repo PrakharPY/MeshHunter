@@ -11,18 +11,11 @@ public sealed class ObjExporter : IModelExporter
 
     public void Export(ObjMesh mesh, string destinationPath)
     {
-        using var writer = new StreamWriter(destinationPath, false, Encoding.UTF8);
+        using var writer = new StreamWriter(destinationPath, false, new UTF8Encoding(false));
         writer.WriteLine("# Exported by MeshHunter");
-
         foreach (var (x, y, z) in mesh.Vertices)
             writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"v {x:R} {y:R} {z:R}"));
-
         for (var i = 0; i + 2 < mesh.Triangles.Count; i += 3)
             writer.WriteLine($"f {mesh.Triangles[i] + 1} {mesh.Triangles[i + 1] + 1} {mesh.Triangles[i + 2] + 1}");
-    }
-
-    public static void Export(ObjMesh mesh, string destinationPath)
-    {
-        new ObjExporter().Export(mesh, destinationPath);
     }
 }

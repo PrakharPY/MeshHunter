@@ -1,39 +1,27 @@
 # MeshHunter
 
-MeshHunter is a Windows-only WPF starter application for analyzing imported game asset packages and previewing their meshes.
+MeshHunter is a Windows-only WPF starter application for scanning game asset files, previewing supported meshes, and exporting models.
 
-## What this starter includes
+## Current features
 
-- Menu bar with File → Import / Export / Exit
-- Left-side details panel listing imported files and discovered assets
-- Analyze action for files and directories
-- Mesh detection for standard OBJ files
-- ZIP archive extraction with path safety checks
-- Basic 3D mesh preview in a viewport
-- Export selected OBJ mesh as OBJ
-- Recognition of common texture file extensions and Unity/Unreal package extensions
+- File menu with Import, Export, and Exit
+- Import files or scan a folder; Analyze lists discovered assets in the left pane
+- ZIP extraction with path traversal protection, nested archive scanning, and entry/expanded-size limits
+- OBJ mesh preview with mouse-drag orbit and mouse-wheel zoom
+- Export a selected OBJ mesh as OBJ, glTF 2.0 (`.gltf` + `.bin`), or binary glTF (`.glb`)
+- Detect common texture extensions
 
 ## Run on Windows
 
-Requirements:
-- Windows 10/11
-- .NET 8 SDK
-- Visual Studio 2022 with .NET desktop development workload
-
-From the repository root:
+Requirements: Windows 10/11, .NET 8 SDK, and Visual Studio 2022 with the .NET desktop development workload.
 
 ```powershell
 dotnet restore
-cd src/MeshHunter
-dotnet build
-```
-
-Then run:
-
-```powershell
 dotnet run --project src/MeshHunter/MeshHunter.csproj
 ```
 
-## Notes
+## Scope
 
-This is an MVP and intentionally does not claim to fully parse proprietary engine formats such as Unity `.assets` or Unreal `.uasset` files yet. The structure is designed as a plugin architecture so those and other formats can be added incrementally.
+This milestone intentionally excludes Unity and Unreal Engine package analysis, which can be added later as a separate feature. It also does not claim support for encrypted archives, arbitrary proprietary game containers, or formats requiring proprietary keys. OBJ is the only mesh format currently parsed and previewed. FBX, glTF, GLB, STL, PLY, and DAE files are detected but are not yet importable. Export to OBJ/glTF/GLB works from an imported OBJ mesh.
+
+The `IAssetFormatPlugin` and `IModelExporter` interfaces provide extension points for adding readers and exporters incrementally. Only standard ZIP archives are extracted at this stage.
