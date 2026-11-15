@@ -40,6 +40,7 @@ public sealed class AssetAnalyzer
         if (!File.Exists(fullPath)) return;
 
         var extension = Path.GetExtension(fullPath);
+        var gameExtractRoot = Path.Combine(workspace, Guid.NewGuid().ToString("N"));
         progress?.Invoke($"Analyzing format: {Path.GetFileName(fullPath)}");
         if ((extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) || HasSignature(fullPath, 0x50, 0x4B, 0x03, 0x04)) && depth < 3)
         {
@@ -62,9 +63,73 @@ public sealed class AssetAnalyzer
             var outputPath = DecompressZlib(fullPath, workspace);
             GatherFiles(outputPath, results, workspace, visited, depth + 1, progress);
         }
+        else if (extension.Equals(".bar", StringComparison.OrdinalIgnoreCase) && depth < 3 &&
+                 GameArchiveExtractor.TryExtractAsphaltBar(fullPath, gameExtractRoot, out var asphaltSummary))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Archive,
+                asphaltSummary.Format,
+                "Archive found",
+                $"Extracted {asphaltSummary.ExtractedCount} of {asphaltSummary.EntryCount} entries; {asphaltSummary.SkippedCount} entries use an unsupported encoding."));
+            GatherExtractedFiles(gameExtractRoot, results, workspace, visited, depth, progress);
+        }
+        else if (depth < 3 && HasSignature(fullPath, 0x46, 0x55, 0x46, 0x53) &&
+                 GameArchiveExtractor.TryExtractRagingThunderVfs(fullPath, gameExtractRoot, out var vfsSummary))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Archive,
+                vfsSummary.Format,
+                "Archive found",
+                $"Extracted {vfsSummary.ExtractedCount} of {vfsSummary.EntryCount} entries; discovered meshes and textures are scanned recursively."));
+            GatherExtractedFiles(gameExtractRoot, results, workspace, visited, depth, progress);
+        }
+        else if (extension.Length == 0 && depth < 3 &&
+                 EmbeddedImageExtractor.TryExtract(fullPath, gameExtractRoot, out var embeddedImageCount))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Archive,
+                "Embedded PNG/JPEG collection",
+                "Texture collection found",
+                $"Extracted {embeddedImageCount} structurally validated embedded images; other proprietary texture records are not decoded."));
+            GatherExtractedFiles(gameExtractRoot, results, workspace, visited, depth, progress);
+        }
+        else if ((extension.Equals(".piff", StringComparison.OrdinalIgnoreCase) ||
+                  HasSignature(fullPath, 0x50, 0x49, 0x46, 0x46)) &&
+                 PiffMeshReader.TryRead(fullPath, out _))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Mesh,
+                "PIFF",
+                "Preview/export supported",
+                "PIFF 3D object mesh detected. Select it to preview or export."));
+        }
+        else if (HasSignature(fullPath, 0x4D, 0x3C, 0x2B, 0x1A) &&
+                 RagingThunderPxcMeshReader.TryRead(fullPath, out _))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Mesh,
+                "Raging Thunder 2 PXC",
+                "Preview/export supported",
+                "Polarbit PXC version 19 model geometry detected. Select it to preview or export."));
+        }
         else if (extension.Equals(".obj", StringComparison.OrdinalIgnoreCase))
         {
-            results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Mesh, "OBJ", "Preview/export supported", "Wavefront OBJ mesh detected. Select it to preview, orbit, and export."));
+            if (AsphaltMeshReader.TryRead(fullPath, out _))
+                results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Mesh, "Asphalt 4 binary OBJ", "Preview/export supported", "Asphalt 4 binary OBJ mesh detected. Select it to preview or export."));
+            else if (ObjMeshReader.TryRead(fullPath, out _))
+                results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Mesh, "OBJ", "Preview/export supported", "Wavefront OBJ mesh detected. Select it to preview, orbit, and export."));
+            else
+                results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Other, "OBJ (unparsed)", "Detected; importer not installed", "The file is not a valid Wavefront OBJ mesh supported by this build."));
         }
         else if (extension.Equals(".prm", StringComparison.OrdinalIgnoreCase) || extension.Equals(".i-p", StringComparison.OrdinalIgnoreCase))
         {
@@ -83,6 +148,16 @@ public sealed class AssetAnalyzer
         {
             results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Other, extension.TrimStart('.').ToUpperInvariant(), "Detected; importer not installed", "This standard model format is recognized but is not yet importable by this build."));
         }
+        else if (HasSignature(fullPath, 0x4B, 0x41, 0x50, 0x47))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Other,
+                "Fastlane KAPG",
+                "Detected; importer not installed",
+                "KAPG container signature detected, but its payload encoding is not decoded by this build."));
+        }
         else if (RevoltPrmReader.TryRead(fullPath, out _))
         {
             results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Mesh, "Re-Volt PRM (detected)", "Preview/export supported", "Re-Volt polygon mesh detected by its binary structure. Select it to preview or export."));
@@ -91,6 +166,12 @@ public sealed class AssetAnalyzer
         {
             results.Add(new(Path.GetFileName(fullPath), fullPath, AssetKind.Mesh, "OBJ (detected)", "Preview/export supported", "Wavefront OBJ mesh detected by its text structure. Select it to preview or export."));
         }
+    }
+
+    private static void GatherExtractedFiles(string extractRoot, List<AssetEntry> results, string workspace, HashSet<string> visited, int depth, Action<string>? progress)
+    {
+        foreach (var file in Directory.EnumerateFiles(extractRoot, "*", SearchOption.AllDirectories))
+            GatherFiles(file, results, workspace, visited, depth + 1, progress);
     }
 
     private static void ExtractZip(string archivePath, string destination, List<AssetEntry> results, string workspace, HashSet<string> visited, int depth, Action<string>? progress)
