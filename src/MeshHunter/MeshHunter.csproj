@@ -9,4 +9,7 @@
     <AssemblyName>MeshHunter</AssemblyName>
     <RootNamespace>MeshHunter</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
 </Project>

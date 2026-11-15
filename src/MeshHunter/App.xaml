@@ -6,5 +6,27 @@
     <SolidColorBrush x:Key="PanelBrush" Color="#FF20242B" />
     <SolidColorBrush x:Key="WindowBrush" Color="#FF171A20" />
     <SolidColorBrush x:Key="AccentBrush" Color="#FF4E9BE8" />
+    <Style TargetType="{x:Type ComboBox}">
+      <Setter Property="Background" Value="#FF181B21" />
+      <Setter Property="Foreground" Value="#FFE8EAF0" />
+      <Setter Property="BorderBrush" Value="#FF3A414D" />
+      <Setter Property="ItemContainerStyle">
+        <Setter.Value>
+          <Style TargetType="{x:Type ComboBoxItem}">
+            <Setter Property="Background" Value="#FF20242B" />
+            <Setter Property="Foreground" Value="#FFE8EAF0" />
+            <Style.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter Property="Background" Value="#FF343D4B" />
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="#FF4E9BE8" />
+                <Setter Property="Foreground" Value="White" />
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Application.Resources>
 </Application>

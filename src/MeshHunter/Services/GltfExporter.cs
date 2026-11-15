@@ -58,7 +58,9 @@ public sealed class GltfExporter : IModelExporter
 
     private static object CreateDocument(int vertexCount, int indexCount, int indexOffset, int binaryLength, float[] min, float[] max, string? bufferUri)
     {
-        var buffer = bufferUri is null ? new { byteLength = binaryLength } : new { byteLength = binaryLength, uri = bufferUri };
+        object buffer = bufferUri is null
+            ? new { byteLength = binaryLength }
+            : new { byteLength = binaryLength, uri = bufferUri };
         return new
         {
             asset = new { version = "2.0", generator = "MeshHunter" },

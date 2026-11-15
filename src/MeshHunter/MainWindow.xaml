@@ -33,7 +33,36 @@
             <Button Content="Analyze" Click="Analyze_Click" Padding="10,7" Background="{StaticResource AccentBrush}" Foreground="White" FontWeight="SemiBold" />
             <TextBlock Text="Discovered assets" FontWeight="SemiBold" Margin="0,14,0,6" />
           </StackPanel>
-          <ListBox x:Name="AssetList" SelectionChanged="AssetList_SelectionChanged" Background="#FF181B21" Foreground="#FFE8EAF0" BorderBrush="#FF3A414D" />
+          <ListBox x:Name="AssetList" SelectionMode="Extended" SelectionChanged="AssetList_SelectionChanged"
+                   PreviewMouseRightButtonDown="AssetList_PreviewMouseRightButtonDown"
+                   Background="#FF181B21" Foreground="#FFE8EAF0" BorderBrush="#FF3A414D">
+            <ListBox.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Export selected mesh(es) as…">
+                  <MenuItem Header="Wavefront OBJ (.obj)" Tag=".obj" Click="ExportSelectedMeshes_Click" />
+                  <MenuItem Header="glTF JSON (.gltf)" Tag=".gltf" Click="ExportSelectedMeshes_Click" />
+                  <MenuItem Header="Binary glTF (.glb)" Tag=".glb" Click="ExportSelectedMeshes_Click" />
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="Export selected textures…" Click="ExportSelectedTextures_Click" />
+              </ContextMenu>
+            </ListBox.ContextMenu>
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="{x:Type ListBoxItem}">
+                <Setter Property="Foreground" Value="#FFE8EAF0" />
+                <Setter Property="Background" Value="#FF181B21" />
+                <Style.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FF343D4B" />
+                  </Trigger>
+                  <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#FF4E9BE8" />
+                    <Setter Property="Foreground" Value="White" />
+                  </Trigger>
+                </Style.Triggers>
+              </Style>
+            </ListBox.ItemContainerStyle>
+          </ListBox>
         </DockPanel>
       </Border>
       <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#FF3A414D" />
@@ -51,10 +80,21 @@
           </Viewport3D>
         </Border>
         <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="#FF343A45" BorderThickness="1" Padding="12" Margin="0,10,0,0">
-          <DockPanel>
-            <TextBlock DockPanel.Dock="Top" Text="Selection details" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8" />
-            <TextBox x:Name="DetailsText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="Transparent" Foreground="#FFCFD5DF" BorderThickness="0" />
-          </DockPanel>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0" Margin="0,0,12,0">
+              <TextBlock DockPanel.Dock="Top" Text="Selection details" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8" />
+              <TextBox x:Name="DetailsText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="Transparent" Foreground="#FFCFD5DF" BorderThickness="0" />
+            </DockPanel>
+            <Border Grid.Column="1" Background="#FF181B21" BorderBrush="#FF343A45" BorderThickness="1" Padding="10">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Activity" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <TextBlock x:Name="ActivityText" Text="Ready — waiting for files to analyze." Foreground="#FFCFD5DF" TextWrapping="Wrap" />
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Grid>
         </Border>
       </Grid>
     </Grid>

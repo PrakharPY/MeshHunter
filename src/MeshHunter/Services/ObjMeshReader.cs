@@ -5,6 +5,20 @@ namespace MeshHunter.Services;
 
 public static class ObjMeshReader
 {
+    public static bool TryRead(string path, out ObjMesh mesh)
+    {
+        try
+        {
+            mesh = Read(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException or OverflowException)
+        {
+            mesh = new ObjMesh();
+            return false;
+        }
+    }
+
     public static ObjMesh Read(string path)
     {
         var mesh = new ObjMesh();

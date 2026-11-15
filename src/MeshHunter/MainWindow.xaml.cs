@@ -8,6 +8,12 @@ using Microsoft.Win32;
 using MeshHunter.Models;
 using MeshHunter.Services;
 using FolderBrowserDialog = System.Windows.Forms.FolderBrowserDialog;
+using MessageBox = System.Windows.MessageBox;
+using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
+using Point = System.Windows.Point;
+using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
+using Color = System.Windows.Media.Color;
 
 namespace MeshHunter;
 
@@ -54,37 +60,91 @@ public partial class MainWindow : Window
             if (!_inputs.Contains(path, StringComparer.OrdinalIgnoreCase)) _inputs.Add(path);
         SourceText.Text = _inputs.Count == 0 ? "No input selected" : string.Join(Environment.NewLine, _inputs);
         StatusText.Text = $"{_inputs.Count} input location(s) ready to analyze.";
+        ActivityText.Text = $"{_inputs.Count} input location(s) ready to analyze.";
     }
 
     private async void Analyze_Click(object sender, RoutedEventArgs e)
     {
         if (_inputs.Count == 0) { Import_Click(sender, e); if (_inputs.Count == 0) return; }
         StatusText.Text = "Analyzing files…";
+        ActivityText.Text = "Analyzing input locations…";
         try
         {
-            var results = await Task.Run(() => _analyzer.Analyze(_inputs, _workspace));
+            IProgress<string> progress = new Progress<string>(message =>
+            {
+                ActivityText.Text = message;
+                StatusText.Text = message;
+            });
+            var results = await Task.Run(() => _analyzer.Analyze(_inputs.ToArray(), _workspace, progress.Report));
+            ActivityText.Text = "Loading discovered assets…";
             _assets.Clear();
             foreach (var asset in results) _assets.Add(asset);
-            DetailsText.Text = $"Analysis complete. Found {_assets.Count} recognized asset(s): {_assets.Count(a => a.Kind == AssetKind.Mesh)} OBJ mesh(es), {_assets.Count(a => a.Kind == AssetKind.Texture)} texture(s), {_assets.Count(a => a.Kind == AssetKind.Other)} unsupported model file(s).";
+            DetailsText.Text = $"Analysis complete. Found {_assets.Count} recognized asset(s): {_assets.Count(a => a.Kind == AssetKind.Mesh)} mesh(es), {_assets.Count(a => a.Kind == AssetKind.Texture)} texture(s), {_assets.Count(a => a.Kind == AssetKind.Other)} unsupported model file(s).";
             StatusText.Text = $"Analysis complete — {_assets.Count} asset(s) found.";
+            ActivityText.Text = $"Loaded {_assets.Count} asset(s).";
         }
         catch (Exception ex)
         {
             StatusText.Text = "Analysis failed.";
+            ActivityText.Text = $"Analysis failed: {ex.Message}";
             MessageBox.Show(this, ex.Message, "MeshHunter analysis error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
     private void AssetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (AssetList.SelectedItem is not AssetEntry asset) return;
-        DetailsText.Text = $"Name: {asset.Name}\nType: {asset.Kind}\nFormat: {asset.Format}\nStatus: {asset.Status}\nPath: {asset.Path}\n\n{asset.Description}";
-        if (asset.Kind == AssetKind.Mesh)
+        var selection = AssetList.SelectedItems.Cast<AssetEntry>().ToArray();
+        if (selection.Length == 0)
         {
-            try { ShowMesh(ObjMeshReader.Read(asset.Path)); }
-            catch (Exception ex) { StatusText.Text = $"Could not preview mesh: {ex.Message}"; }
+            DetailsText.Clear();
+            MeshVisual.Content = null;
+            ActivityText.Text = "No assets selected.";
+            return;
         }
-        else MeshVisual.Content = null;
+
+        var meshes = selection.Where(asset => asset.Kind == AssetKind.Mesh).ToArray();
+        if (selection.Length == 1)
+        {
+            var asset = selection[0];
+            DetailsText.Text = $"Name: {asset.Name}\nType: {asset.Kind}\nFormat: {asset.Format}\nStatus: {asset.Status}\nPath: {asset.Path}\n\n{asset.Description}";
+        }
+        else
+        {
+            DetailsText.Text = $"{selection.Length} assets selected\n{meshes.Length} mesh(es), {selection.Count(asset => asset.Kind == AssetKind.Texture)} texture(s)\n\nRight-click the selection to export supported meshes and textures.";
+        }
+
+        if (meshes.Length == 0)
+        {
+            MeshVisual.Content = null;
+            ActivityText.Text = "Selection contains no previewable meshes.";
+            return;
+        }
+
+        try
+        {
+            var asset = meshes[0];
+            ActivityText.Text = $"Loading mesh preview: {asset.Name}";
+            ShowMesh(MeshFormatReader.Read(asset.Path));
+            ActivityText.Text = selection.Length == 1
+                ? $"Loaded mesh: {asset.Name}"
+                : $"Loaded preview of {asset.Name}; {meshes.Length} mesh(es) selected.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Could not preview mesh: {ex.Message}";
+            ActivityText.Text = $"Could not load mesh: {ex.Message}";
+        }
+    }
+
+    private void AssetList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source ||
+            ItemsControl.ContainerFromElement(AssetList, source) is not ListBoxItem item ||
+            item.IsSelected)
+            return;
+
+        AssetList.SelectedItems.Clear();
+        item.IsSelected = true;
     }
 
     private void ShowMesh(ObjMesh mesh)
@@ -159,7 +219,7 @@ public partial class MainWindow : Window
     {
         if (AssetList.SelectedItem is not AssetEntry { Kind: AssetKind.Mesh } asset)
         {
-            MessageBox.Show(this, "Select a supported OBJ mesh before exporting.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "Select a supported mesh before exporting.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var dialog = new SaveFileDialog
@@ -174,21 +234,177 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) != true) return;
         try
         {
-            var mesh = ObjMeshReader.Read(asset.Path);
-            switch (Path.GetExtension(dialog.FileName).ToLowerInvariant())
+            var extension = dialog.FilterIndex switch
             {
-                case ".obj": new ObjExporter().Export(mesh, dialog.FileName); break;
-                case ".gltf":
-                case ".glb": new GltfExporter().Export(mesh, dialog.FileName); break;
-                default: throw new NotSupportedException("Choose OBJ, glTF, or GLB as the export format.");
-            }
-            StatusText.Text = $"Exported {dialog.FileName}";
+                2 => ".gltf",
+                3 => ".glb",
+                _ => ".obj"
+            };
+            var outputPath = Path.GetExtension(dialog.FileName).Equals(extension, StringComparison.OrdinalIgnoreCase)
+                ? dialog.FileName
+                : Path.ChangeExtension(dialog.FileName, extension);
+            var mesh = MeshFormatReader.Read(asset.Path);
+            ExportMesh(mesh, outputPath);
+            StatusText.Text = $"Exported {outputPath}";
+            ActivityText.Text = $"Exported {asset.Name} to {outputPath}";
         }
         catch (Exception ex)
         {
+            StatusText.Text = "Export failed.";
+            ActivityText.Text = $"Export failed: {ex.Message}";
             MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    private void ExportSelectedMeshes_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string extension } ||
+            extension is not (".obj" or ".gltf" or ".glb"))
+            return;
+
+        var selected = AssetList.SelectedItems.Cast<AssetEntry>()
+            .Where(asset => asset.Kind == AssetKind.Mesh)
+            .ToArray();
+        if (selected.Length == 0)
+        {
+            MessageBox.Show(this, "Select at least one supported mesh.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new FolderBrowserDialog
+        {
+            Description = $"Choose a folder for the selected {extension} mesh export(s)",
+            ShowNewFolderButton = true,
+            UseDescriptionForTitle = true
+        };
+        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+
+        try
+        {
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var asset in selected)
+            {
+                var outputName = GetUniqueMeshFileName(Path.GetFileNameWithoutExtension(asset.Name), extension, dialog.SelectedPath, usedNames);
+                var outputPath = Path.Combine(dialog.SelectedPath, outputName);
+                ExportMesh(MeshFormatReader.Read(asset.Path), outputPath);
+            }
+
+            StatusText.Text = $"Exported {selected.Length} mesh(es) as {extension}.";
+            ActivityText.Text = $"Exported {selected.Length} selected mesh(es) as {extension} to {dialog.SelectedPath}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Export failed.";
+            ActivityText.Text = $"Export failed: {ex.Message}";
+            MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ExportSelectedTextures_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = AssetList.SelectedItems.Cast<AssetEntry>()
+            .Where(asset => asset.Kind == AssetKind.Texture)
+            .ToArray();
+        if (selected.Length == 0)
+        {
+            MessageBox.Show(this, "Select at least one texture.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new FolderBrowserDialog
+        {
+            Description = "Choose a folder for the selected textures",
+            ShowNewFolderButton = true,
+            UseDescriptionForTitle = true
+        };
+        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+
+        try
+        {
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var asset in selected)
+            {
+                var extension = Path.GetExtension(asset.Path);
+                if (string.IsNullOrEmpty(extension))
+                    extension = GetTextureExtension(asset.Format);
+                var outputName = GetUniqueFileName(Path.GetFileNameWithoutExtension(asset.Name), extension, dialog.SelectedPath, usedNames);
+                File.Copy(asset.Path, Path.Combine(dialog.SelectedPath, outputName));
+            }
+
+            StatusText.Text = $"Exported {selected.Length} texture(s).";
+            ActivityText.Text = $"Exported {selected.Length} selected texture(s) to {dialog.SelectedPath}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Export failed.";
+            ActivityText.Text = $"Export failed: {ex.Message}";
+            MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void ExportMesh(ObjMesh mesh, string outputPath)
+    {
+        switch (Path.GetExtension(outputPath).ToLowerInvariant())
+        {
+            case ".obj":
+                new ObjExporter().Export(mesh, outputPath);
+                break;
+            case ".gltf":
+            case ".glb":
+                new GltfExporter().Export(mesh, outputPath);
+                break;
+            default:
+                throw new NotSupportedException("Choose OBJ, glTF, or GLB as the export format.");
+        }
+    }
+
+    private static string GetUniqueMeshFileName(string name, string extension, string directory, HashSet<string> usedNames)
+    {
+        var baseName = GetSafeFileBaseName(name);
+        var requiresBuffer = extension.Equals(".gltf", StringComparison.OrdinalIgnoreCase);
+        for (var suffix = 1; ; suffix++)
+        {
+            var candidate = suffix == 1 ? baseName + extension : $"{baseName} ({suffix}){extension}";
+            var bufferName = requiresBuffer ? Path.ChangeExtension(candidate, ".bin") : null;
+            if (usedNames.Contains(candidate) || File.Exists(Path.Combine(directory, candidate)) ||
+                bufferName is not null && (usedNames.Contains(bufferName) || File.Exists(Path.Combine(directory, bufferName))))
+                continue;
+
+            usedNames.Add(candidate);
+            if (bufferName is not null)
+                usedNames.Add(bufferName);
+            return candidate;
+        }
+    }
+
+    private static string GetUniqueFileName(string name, string extension, string directory, HashSet<string> usedNames)
+    {
+        var baseName = GetSafeFileBaseName(name);
+        var candidate = baseName + extension;
+        var suffix = 2;
+        while (!usedNames.Add(candidate) || File.Exists(Path.Combine(directory, candidate)))
+            candidate = $"{baseName} ({suffix++}){extension}";
+        return candidate;
+    }
+
+    private static string GetSafeFileBaseName(string name)
+    {
+        var baseName = string.Join("_", name.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        return string.IsNullOrWhiteSpace(baseName) ? "asset" : baseName;
+    }
+
+    private static string GetTextureExtension(string format) => format.ToUpperInvariant() switch
+    {
+        "JPEG" => ".jpg",
+        "TIFF" => ".tif",
+        "WEBP" => ".webp",
+        "KTX2" => ".ktx2",
+        "PNG" => ".png",
+        "DDS" => ".dds",
+        "BMP" => ".bmp",
+        "KTX" => ".ktx",
+        _ => ".texture"
+    };
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
 }
