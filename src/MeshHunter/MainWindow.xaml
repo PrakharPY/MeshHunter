@@ -11,6 +11,12 @@
         <Separator/>
         <MenuItem Header="E_xit" Click="Exit_Click" />
       </MenuItem>
+      <MenuItem x:Name="ViewMenu" Header="_View">
+        <MenuItem Header="_All" Tag="All" IsCheckable="True" IsChecked="True" Click="AssetFilter_Click" />
+        <MenuItem Header="_Mesh" Tag="Mesh" IsCheckable="True" Click="AssetFilter_Click" />
+        <MenuItem Header="_Texture" Tag="Texture" IsCheckable="True" Click="AssetFilter_Click" />
+        <MenuItem Header="_Others" Tag="Others" IsCheckable="True" Click="AssetFilter_Click" />
+      </MenuItem>
     </Menu>
     <StatusBar DockPanel.Dock="Bottom" Background="#FF252A33" Foreground="#FFCFD5DF">
       <StatusBarItem><TextBlock x:Name="StatusText" Text="Ready — import files or a folder, then analyze." /></StatusBarItem>
@@ -83,7 +89,13 @@
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
             <DockPanel Grid.Column="0" Margin="0,0,12,0">
-              <TextBlock DockPanel.Dock="Top" Text="Selection details" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8" />
+              <StackPanel DockPanel.Dock="Top">
+                <TextBlock Text="Selection details" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8" />
+                <ComboBox x:Name="PxcModelSelector" DisplayMemberPath="Name" Visibility="Collapsed"
+                          SelectionChanged="PxcModelSelector_SelectionChanged" Margin="0,0,0,8" />
+              </StackPanel>
+              <Button x:Name="ExportPxcModelButton" DockPanel.Dock="Bottom" Content="Export selected model…"
+                      Click="ExportPxcModel_Click" Visibility="Collapsed" Padding="8,5" Margin="0,8,0,0" />
               <TextBox x:Name="DetailsText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="Transparent" Foreground="#FFCFD5DF" BorderThickness="0" />
             </DockPanel>
             <Border Grid.Column="1" Background="#FF181B21" BorderBrush="#FF343A45" BorderThickness="1" Padding="10">

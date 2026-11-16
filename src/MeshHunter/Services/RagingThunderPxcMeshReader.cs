@@ -4,6 +4,8 @@ using MeshHunter.Models;
 
 namespace MeshHunter.Services;
 
+public sealed record RagingThunderPxcModel(string Name, ObjMesh Mesh);
+
 public static class RagingThunderPxcMeshReader
 {
     private const int MaxFileSize = 512 * 1024 * 1024;
@@ -41,10 +43,30 @@ public static class RagingThunderPxcMeshReader
 
     public static ObjMesh Read(ReadOnlySpan<byte> data)
     {
+        var models = ReadModels(data);
+        var combined = new ObjMesh();
+        foreach (var model in models)
+        {
+            var vertexOffset = combined.Vertices.Count;
+            combined.Vertices.AddRange(model.Mesh.Vertices);
+            combined.Triangles.AddRange(model.Mesh.Triangles.Select(index => index + vertexOffset));
+        }
+        return combined;
+    }
+
+    public static IReadOnlyList<RagingThunderPxcModel> ReadModels(string path)
+    {
+        if (new FileInfo(path).Length > MaxFileSize)
+            throw new InvalidDataException("Raging Thunder PXC exceeds the 512 MiB input safety limit.");
+        return ReadModels(File.ReadAllBytes(path));
+    }
+
+    public static IReadOnlyList<RagingThunderPxcModel> ReadModels(ReadOnlySpan<byte> data)
+    {
         if (data.Length > MaxFileSize)
             throw new InvalidDataException("Raging Thunder PXC exceeds the 512 MiB input safety limit.");
         var parser = new Parser(data);
-        return parser.Read();
+        return parser.ReadModels();
     }
 
     private ref struct Parser
@@ -69,7 +91,7 @@ public static class RagingThunderPxcMeshReader
             _data = data;
         }
 
-        public ObjMesh Read()
+        public IReadOnlyList<RagingThunderPxcModel> ReadModels()
         {
             if (_data.Length < 8 ||
                 BinaryPrimitives.ReadUInt32LittleEndian(_data) != Magic ||
@@ -84,7 +106,7 @@ public static class RagingThunderPxcMeshReader
                 throw new InvalidDataException("Raging Thunder PXC contains trailing bytes.");
 
             ApplyWorldTransforms();
-            return BuildMesh();
+            return BuildMeshes();
         }
 
         private int ReadObject(int offset, int parentEnd, int parent, int depth)
@@ -93,13 +115,13 @@ public static class RagingThunderPxcMeshReader
                 throw new InvalidDataException("Raging Thunder PXC object tree is too deeply nested.");
 
             var chunk = ReadChunk(offset, parentEnd);
-            var (_, position) = ReadString(chunk.Data, chunk.End);
+            var (name, position) = ReadString(chunk.Data, chunk.End);
             var objectData = Advance(position, 4, chunk.End);
             if (_objects.Count >= MaxObjects)
                 throw new InvalidDataException("Raging Thunder PXC contains too many scene objects.");
 
             var objectIndex = _objects.Count;
-            var sceneObject = new SceneObject(parent);
+            var sceneObject = new SceneObject(parent, name);
             _objects.Add(sceneObject);
 
             if (Containers.Contains(chunk.Tag))
@@ -248,14 +270,15 @@ public static class RagingThunderPxcMeshReader
             }
         }
 
-        private ObjMesh BuildMesh()
+        private IReadOnlyList<RagingThunderPxcModel> BuildMeshes()
         {
-            var mesh = new ObjMesh();
+            var models = new List<RagingThunderPxcModel>();
             foreach (var sceneObject in _objects)
             {
                 if (sceneObject.Mesh is not { } source)
                     continue;
 
+                var mesh = new ObjMesh();
                 var vertexBase = mesh.Vertices.Count;
                 for (var vertex = 0; vertex < source.VertexCount; vertex++)
                 {
@@ -279,11 +302,15 @@ public static class RagingThunderPxcMeshReader
                         mesh.Triangles.Add(vertexBase + vertex);
                     }
                 }
+                if (mesh.Vertices.Count > 0 && mesh.Triangles.Count > 0)
+                    models.Add(new(
+                        string.IsNullOrWhiteSpace(sceneObject.Name) ? $"Model {models.Count + 1}" : sceneObject.Name,
+                        mesh));
             }
 
-            if (mesh.Vertices.Count == 0 || mesh.Triangles.Count == 0)
+            if (models.Count == 0)
                 throw new InvalidDataException("Raging Thunder PXC contains no supported model geometry.");
-            return mesh;
+            return models;
         }
 
         private (string Text, int Next) ReadString(int offset, int end)
@@ -341,9 +368,10 @@ public static class RagingThunderPxcMeshReader
 
         private static double[] IdentityMatrix() => [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
-        private sealed class SceneObject(int parent)
+        private sealed class SceneObject(int parent, string name)
         {
             public int Parent { get; } = parent;
+            public string Name { get; } = name;
             public double[]? Matrix { get; set; }
             public double[]? Translation { get; set; }
             public double[] WorldMatrix { get; set; } = IdentityMatrix();

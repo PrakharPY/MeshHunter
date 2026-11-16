@@ -210,6 +210,41 @@ public static class GameArchiveExtractor
         return true;
     }
 
+    public static bool TryExtractRagingThunderPlzp(
+        string path,
+        string destination,
+        out GameArchiveExtractionSummary summary)
+    {
+        summary = default;
+        if (new FileInfo(path).Length < PlzpMagic.Length)
+            return false;
+        using (var probe = File.OpenRead(path))
+        {
+            Span<byte> magic = stackalloc byte[4];
+            probe.ReadExactly(magic);
+            if (!magic.SequenceEqual(PlzpMagic))
+                return false;
+        }
+
+        var data = ReadArchive(path);
+        if (data.Length < 12)
+            throw new InvalidDataException("Raging Thunder 2 PLZP entry is truncated.");
+
+        var expectedLength = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4));
+        var compressedLength = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(8));
+        if (expectedLength == 0 || expectedLength > MaxExpandedEntrySize ||
+            compressedLength != data.Length - 12)
+            throw new InvalidDataException("Raging Thunder 2 PLZP entry has invalid lengths.");
+
+        long expandedTotal = 0;
+        var payload = InflateZlib(data.AsSpan(12), checked((int)expectedLength), ref expandedTotal, "Raging Thunder 2");
+        Directory.CreateDirectory(destination);
+        var extension = GetPayloadExtension(payload);
+        File.WriteAllBytes(Path.Combine(destination, CreateSafeName(0, "payload", extension)), payload);
+        summary = new("Raging Thunder 2 PLZP", 1, 1, 0);
+        return true;
+    }
+
     private static byte[] ReadArchive(string path)
     {
         var length = new FileInfo(path).Length;

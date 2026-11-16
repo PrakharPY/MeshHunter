@@ -42,6 +42,19 @@ public sealed class GameFormatReaderTests
     }
 
     [Fact]
+    public void SeparatesNamedModelsInsideRagingThunderPxcScenes()
+    {
+        var models = RagingThunderPxcMeshReader.ReadModels(CreateRagingThunderPxc(modelCount: 2));
+
+        Assert.Equal(new[] { "model-1", "model-2" }, models.Select(model => model.Name));
+        Assert.All(models, model =>
+        {
+            Assert.Equal(3, model.Mesh.Vertices.Count);
+            Assert.Equal(new[] { 0, 1, 2 }, model.Mesh.Triangles);
+        });
+    }
+
+    [Fact]
     public void RejectsRagingThunderPxcIndicesOutsideTheVertexArray()
     {
         var data = CreateRagingThunderPxc(invalidIndex: true);
@@ -98,6 +111,46 @@ public sealed class GameFormatReaderTests
         Assert.Equal("Raging Thunder 2 FUFS", summary.Format);
         Assert.Equal(1, summary.ExtractedCount);
         Assert.Equal(payload, File.ReadAllBytes(Path.Combine(destination, "00000_entry-00000.dds")));
+    }
+
+    [Fact]
+    public void AnalyzesAndExtractsACompressedPxcModelFromABinFile()
+    {
+        using var temp = new TemporaryDirectory();
+        var binPath = Path.Combine(temp.Path, "model.bin");
+        File.WriteAllBytes(binPath, CreatePlzp(CreateRagingThunderPxc()));
+
+        var results = new AssetAnalyzer().Analyze([binPath], temp.Path);
+        var model = Assert.Single(results, asset => asset.Kind == AssetKind.Mesh);
+
+        Assert.Contains(results, asset => asset.Format == "Raging Thunder 2 PLZP");
+        Assert.Equal("Raging Thunder 2 PXC", model.Format);
+        Assert.Single(RagingThunderPxcMeshReader.ReadModels(model.Path));
+        Assert.NotEmpty(MeshFormatReader.Read(model.Path).Triangles);
+    }
+
+    [Fact]
+    public void RecognizesAnUncompressedPxcModelInABinFile()
+    {
+        using var temp = new TemporaryDirectory();
+        var binPath = Path.Combine(temp.Path, "model.bin");
+        File.WriteAllBytes(binPath, CreateRagingThunderPxc());
+
+        var results = new AssetAnalyzer().Analyze([binPath], temp.Path);
+
+        Assert.Contains(results, asset => asset.Kind == AssetKind.Mesh && asset.Format == "Raging Thunder 2 PXC");
+    }
+
+    [Fact]
+    public void ExtractsCompressedRagingThunderTextureFromABinFile()
+    {
+        using var temp = new TemporaryDirectory();
+        var binPath = Path.Combine(temp.Path, "texture.bin");
+        File.WriteAllBytes(binPath, CreatePlzp(Encoding.ASCII.GetBytes("DDS ")));
+
+        var results = new AssetAnalyzer().Analyze([binPath], temp.Path);
+
+        Assert.Contains(results, asset => asset.Kind == AssetKind.Texture && asset.Format == "DDS");
     }
 
     [Fact]
@@ -186,7 +239,7 @@ public sealed class GameFormatReaderTests
         return result;
     }
 
-    private static byte[] CreateRagingThunderPxc(bool invalidIndex = false)
+    private static byte[] CreateRagingThunderPxc(bool invalidIndex = false, int modelCount = 1)
     {
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
@@ -230,24 +283,25 @@ public sealed class GameFormatReaderTests
             meshWriter.Write((ushort)0);
         }
 
-        using var sceneObject = new MemoryStream();
-        using (var objectWriter = new BinaryWriter(sceneObject, Encoding.ASCII, leaveOpen: true))
-        {
-            WriteString(objectWriter, "");
-            objectWriter.Write(0u);
-            WritePlacement(objectWriter);
-            WriteChunk(objectWriter, "#RES", []);
-            WriteChunk(objectWriter, "MESH", meshData.ToArray());
-        }
-        var meshObject = CreateChunk("SGPS", sceneObject.ToArray());
-
         using var root = new MemoryStream();
         using (var rootWriter = new BinaryWriter(root, Encoding.ASCII, leaveOpen: true))
         {
             WriteString(rootWriter, "");
             rootWriter.Write(0u);
-            rootWriter.Write(1u);
-            rootWriter.Write(meshObject);
+            rootWriter.Write(checked((uint)modelCount));
+            for (var index = 0; index < modelCount; index++)
+            {
+                using var sceneObject = new MemoryStream();
+                using (var objectWriter = new BinaryWriter(sceneObject, Encoding.ASCII, leaveOpen: true))
+                {
+                    WriteString(objectWriter, $"model-{index + 1}");
+                    objectWriter.Write(0u);
+                    WritePlacement(objectWriter);
+                    WriteChunk(objectWriter, "#RES", []);
+                    WriteChunk(objectWriter, "MESH", meshData.ToArray());
+                }
+                WriteChunk(rootWriter, "SGPS", sceneObject.ToArray());
+            }
             WritePlacement(rootWriter);
             WriteChunk(rootWriter, "NONE", []);
         }

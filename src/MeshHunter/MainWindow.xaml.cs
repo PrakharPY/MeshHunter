@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
@@ -20,6 +22,7 @@ namespace MeshHunter;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<AssetEntry> _assets = new();
+    private readonly ICollectionView _assetView;
     private readonly List<string> _inputs = new();
     private readonly AssetAnalyzer _analyzer = new();
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "MeshHunter", Guid.NewGuid().ToString("N"));
@@ -29,11 +32,16 @@ public partial class MainWindow : Window
     private double _orbitPitch = 0.45;
     private double _cameraDistance = 4;
     private Point3D _modelCenter = new(0, 0, 0);
+    private string? _selectedPxcPath;
+    private bool _updatingPxcModels;
+    private string _assetFilter = "All";
 
     public MainWindow()
     {
         InitializeComponent();
-        AssetList.ItemsSource = _assets;
+        _assetView = CollectionViewSource.GetDefaultView(_assets);
+        _assetView.Filter = IsVisibleAsset;
+        AssetList.ItemsSource = _assetView;
         Directory.CreateDirectory(_workspace);
         Closed += (_, _) =>
         {
@@ -96,6 +104,7 @@ public partial class MainWindow : Window
         var selection = AssetList.SelectedItems.Cast<AssetEntry>().ToArray();
         if (selection.Length == 0)
         {
+            ClearPxcModels();
             DetailsText.Clear();
             MeshVisual.Content = null;
             ActivityText.Text = "No assets selected.";
@@ -103,10 +112,13 @@ public partial class MainWindow : Window
         }
 
         var meshes = selection.Where(asset => asset.Kind == AssetKind.Mesh).ToArray();
+        ClearPxcModels();
         if (selection.Length == 1)
         {
             var asset = selection[0];
             DetailsText.Text = $"Name: {asset.Name}\nType: {asset.Kind}\nFormat: {asset.Format}\nStatus: {asset.Status}\nPath: {asset.Path}\n\n{asset.Description}";
+            if (asset.Format == "Raging Thunder 2 PXC")
+                ShowPxcModels(asset);
         }
         else
         {
@@ -124,7 +136,7 @@ public partial class MainWindow : Window
         {
             var asset = meshes[0];
             ActivityText.Text = $"Loading mesh preview: {asset.Name}";
-            ShowMesh(MeshFormatReader.Read(asset.Path));
+            ShowMesh(GetSelectedMesh(asset));
             ActivityText.Text = selection.Length == 1
                 ? $"Loaded mesh: {asset.Name}"
                 : $"Loaded preview of {asset.Name}; {meshes.Length} mesh(es) selected.";
@@ -133,6 +145,103 @@ public partial class MainWindow : Window
         {
             StatusText.Text = $"Could not preview mesh: {ex.Message}";
             ActivityText.Text = $"Could not load mesh: {ex.Message}";
+        }
+    }
+
+    private void AssetFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string filter }) return;
+        _assetFilter = filter;
+        foreach (var item in ViewMenu.Items.OfType<MenuItem>())
+            item.IsChecked = string.Equals(item.Tag as string, filter, StringComparison.Ordinal);
+        _assetView.Refresh();
+        foreach (var asset in AssetList.SelectedItems.Cast<AssetEntry>().ToArray())
+            if (!IsVisibleAsset(asset)) AssetList.SelectedItems.Remove(asset);
+    }
+
+    private bool IsVisibleAsset(object item)
+    {
+        if (item is not AssetEntry asset) return false;
+        return _assetFilter switch
+        {
+            "Mesh" => asset.Kind == AssetKind.Mesh,
+            "Texture" => asset.Kind == AssetKind.Texture,
+            "Others" => asset.Kind is not (AssetKind.Mesh or AssetKind.Texture),
+            _ => true
+        };
+    }
+
+    private void ShowPxcModels(AssetEntry asset)
+    {
+        var models = RagingThunderPxcMeshReader.ReadModels(asset.Path);
+        _selectedPxcPath = asset.Path;
+        if (models.Count == 0) return;
+
+        _updatingPxcModels = true;
+        PxcModelSelector.ItemsSource = models;
+        PxcModelSelector.SelectedIndex = 0;
+        PxcModelSelector.Visibility = Visibility.Visible;
+        ExportPxcModelButton.Visibility = Visibility.Visible;
+        _updatingPxcModels = false;
+        DetailsText.Text += $"\n\nModels in this file: {models.Count}. Choose a model from the dropdown to preview or export it.";
+    }
+
+    private void ClearPxcModels()
+    {
+        _updatingPxcModels = true;
+        PxcModelSelector.ItemsSource = null;
+        PxcModelSelector.SelectedIndex = -1;
+        PxcModelSelector.Visibility = Visibility.Collapsed;
+        ExportPxcModelButton.Visibility = Visibility.Collapsed;
+        _selectedPxcPath = null;
+        _updatingPxcModels = false;
+    }
+
+    private ObjMesh GetSelectedMesh(AssetEntry asset)
+    {
+        if (_selectedPxcPath is not null &&
+            string.Equals(_selectedPxcPath, asset.Path, StringComparison.OrdinalIgnoreCase) &&
+            PxcModelSelector.SelectedItem is RagingThunderPxcModel model)
+            return model.Mesh;
+        return MeshFormatReader.Read(asset.Path);
+    }
+
+    private void PxcModelSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingPxcModels || PxcModelSelector.SelectedItem is not RagingThunderPxcModel model)
+            return;
+        ShowMesh(model.Mesh);
+        ActivityText.Text = $"Previewing model: {model.Name}";
+    }
+
+    private void ExportPxcModel_Click(object sender, RoutedEventArgs e)
+    {
+        if (PxcModelSelector.SelectedItem is not RagingThunderPxcModel model) return;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export selected Raging Thunder model",
+            FileName = GetSafeFileBaseName(model.Name) + ".obj",
+            DefaultExt = ".obj",
+            Filter = "Wavefront OBJ (*.obj)|*.obj|glTF JSON (*.gltf)|*.gltf|Binary glTF (*.glb)|*.glb",
+            AddExtension = true
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            var extension = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+            if (extension is not (".obj" or ".gltf" or ".glb")) extension = ".obj";
+            var outputPath = Path.GetExtension(dialog.FileName).Equals(extension, StringComparison.OrdinalIgnoreCase)
+                ? dialog.FileName
+                : Path.ChangeExtension(dialog.FileName, extension);
+            ExportMesh(model.Mesh, outputPath);
+            StatusText.Text = $"Exported {outputPath}";
+            ActivityText.Text = $"Exported model {model.Name} to {outputPath}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Export failed.";
+            ActivityText.Text = $"Export failed: {ex.Message}";
+            MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -243,7 +352,7 @@ public partial class MainWindow : Window
             var outputPath = Path.GetExtension(dialog.FileName).Equals(extension, StringComparison.OrdinalIgnoreCase)
                 ? dialog.FileName
                 : Path.ChangeExtension(dialog.FileName, extension);
-            var mesh = MeshFormatReader.Read(asset.Path);
+            var mesh = GetSelectedMesh(asset);
             ExportMesh(mesh, outputPath);
             StatusText.Text = $"Exported {outputPath}";
             ActivityText.Text = $"Exported {asset.Name} to {outputPath}";

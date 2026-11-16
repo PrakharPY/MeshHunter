@@ -1,11 +1,16 @@
 using MeshHunter.Models;
 using MeshHunter.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MeshHunter.Tests;
 
 public sealed class SampleAttachmentTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public SampleAttachmentTests(ITestOutputHelper output) => _output = output;
+
     [SampleFact("MESHHUNTER_ASPHALT_BAR", "MESHHUNTER_ASPHALT_TEXTURES")]
     public void ExtractsValidatedAsphaltArchiveEntriesAndEmbeddedImages()
     {
@@ -57,8 +62,17 @@ public sealed class SampleAttachmentTests
         Assert.Equal(12, results.Count(asset => asset.Kind == AssetKind.Texture && asset.Format == "PNG"));
         var models = results.Where(asset => asset.Format == "Raging Thunder 2 PXC").ToArray();
         Assert.Equal(13, models.Length);
+        var screenshotAssets = results.Where(asset => asset.Name.StartsWith("a90bc78", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var compressedPayloads = results.Where(asset => asset.Format == "Raging Thunder 2 PLZP").ToArray();
+        _output.WriteLine($"Extracted textures: {results.Count(asset => asset.Kind == AssetKind.Texture && asset.Format == "DDS")} DDS, {results.Count(asset => asset.Kind == AssetKind.Texture && asset.Format == "PNG")} PNG.");
+        _output.WriteLine($"PXC assets: {models.Length}");
+        _output.WriteLine($"Screenshot-named assets: {string.Join(", ", screenshotAssets.Select(asset => $"{asset.Name} ({asset.Format})"))}");
+        _output.WriteLine($"Standalone PLZP payloads: {compressedPayloads.Length}");
         foreach (var model in models)
         {
+            var sceneModels = RagingThunderPxcMeshReader.ReadModels(model.Path);
+            Assert.NotEmpty(sceneModels);
+            _output.WriteLine($"{model.Name}: {sceneModels.Count} selectable scene mesh(es): {string.Join(", ", sceneModels.Select(sceneModel => sceneModel.Name))}");
             var mesh = MeshFormatReader.Read(model.Path);
             Assert.NotEmpty(mesh.Vertices);
             Assert.NotEmpty(mesh.Triangles);

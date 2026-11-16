@@ -63,6 +63,18 @@ public sealed class AssetAnalyzer
             var outputPath = DecompressZlib(fullPath, workspace);
             GatherFiles(outputPath, results, workspace, visited, depth + 1, progress);
         }
+        else if (depth < 3 && HasSignature(fullPath, 0x50, 0x4C, 0x5A, 0x50) &&
+                 GameArchiveExtractor.TryExtractRagingThunderPlzp(fullPath, gameExtractRoot, out var plzpSummary))
+        {
+            results.Add(new(
+                Path.GetFileName(fullPath),
+                fullPath,
+                AssetKind.Archive,
+                plzpSummary.Format,
+                "Compressed payload found",
+                "Raging Thunder 2 PLZP payload was decompressed and its model or texture contents are scanned."));
+            GatherExtractedFiles(gameExtractRoot, results, workspace, visited, depth, progress);
+        }
         else if (extension.Equals(".bar", StringComparison.OrdinalIgnoreCase) && depth < 3 &&
                  GameArchiveExtractor.TryExtractAsphaltBar(fullPath, gameExtractRoot, out var asphaltSummary))
         {
@@ -120,7 +132,7 @@ public sealed class AssetAnalyzer
                 AssetKind.Mesh,
                 "Raging Thunder 2 PXC",
                 "Preview/export supported",
-                "Polarbit PXC version 19 model geometry detected. Select it to preview or export."));
+                "Polarbit PXC version 19 scene model detected. Select it to choose a model, preview it, or export it."));
         }
         else if (extension.Equals(".obj", StringComparison.OrdinalIgnoreCase))
         {

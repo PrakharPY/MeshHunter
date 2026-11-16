@@ -4,11 +4,12 @@ MeshHunter is a Windows-only WPF starter application for scanning game asset fil
 
 ## Current features
 
-- File menu with Import, Export, and Exit
+- File menu with Import, Export, and Exit; View filters for All, Mesh, Texture, and Others
 - Import files or scan a folder; Analyze lists discovered assets in the left pane
 - ZIP extraction with path traversal protection, nested archive scanning, and entry/expanded-size limits
 - ZIP, GZIP, and ZLIB signature/extension detection with decompression limits
-- Raging Thunder FUFS extraction, including PLZP/ZLIB entries; PIFF meshes, Polarbit PXC v19 scene models, and discovered PNG/DDS textures are scanned
+- Raging Thunder FUFS and standalone PLZP extraction, including compressed `.bin` payloads; PIFF meshes, Polarbit PXC v19 scene models, and discovered PNG/DDS textures are scanned
+- PXC v19 models inside a scene file are listed in a model dropdown for individual preview and export
 - Asphalt 4 BAR ZLIB entry extraction, binary `.obj` mesh import, and structurally validated PNG/JPEG recovery from extensionless image collections
 - PIFF, Re-Volt `.prm`, and intermediate `.i-p` mesh import, including structural detection when the file extension is unknown
 - OBJ mesh preview with mouse-drag orbit and mouse-wheel zoom
